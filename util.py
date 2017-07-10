@@ -3,6 +3,11 @@ from numpy import cos, sin, array, pi, dot, cross, arctan2, zeros, linspace, vst
 from scipy.optimize import root
 import matplotlib.pyplot as plt
 
+def calc_eta(q_ep, q_met):
+    l_ep = norm(q_ep[:-1] - q_ep[1:], axis=1)
+    l_met = norm(q_met[:-1] - q_met[1:], axis=1)
+    return (l_met - l_ep) / l_ep
+
 def find_close_point(x1, q1, x2s, Nd, J):
     """ Close in joint space """
     dmin = inf
@@ -73,15 +78,6 @@ def angle(a, b, na, nb):
 
 def mass_center(q1, q2, q3, w):
     return (q1 + w * q2 + q3) / (2.0 + w)
-  
-def calc_eta(q_ep, q_met, Np):
-    l_ep = zeros(Np-1)
-    l_met = zeros(Np-1)
-    for k in range(Np-1):
-        l_ep[k]  = norm(q_ep[k] - q_ep[k+1])
-        l_met[k] = norm(q_met[k] - qs_met[k+1])
-    eta = (l_met - l_ep) / l_ep
-    return eta
     
 def newton(fk, J, x, q0, alpha = 0.1, max_it = 1000, tol = 1e-6):
   it_counter = max_it
