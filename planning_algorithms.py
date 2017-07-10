@@ -4,52 +4,110 @@ from scipy.optimize import root
 from util import *
 
 def exact_path_following(xp, q0, fk):
-    """ Solves the inverse kinematics for every path point """
+    """ Solves the inverse kinematics for every path point
+    
+    Uses root solving algorithm from scipy.optimize to solve the inverse kinematics problem.
+    Uses the solution of the previous point as initial value for the next point.
+    
+    Parameters
+    ----------
+    xp : ndarray (n, 2)
+        Cartesian coordinates for the end effector path of lenght n.
+    q0 : ndarray (2,)
+        Initial guess for joint values when solving the ik problem for the first point
+    fk : fun
+        Function that takes as input a list or array with joint values en returns the cartesian coordinates of the end effector.
+        
+    Returns
+    -------
+    dict
+        A dictionnary with keys
+        success : True when the algorithm converged, False otherwise
+        q : (n, 2) ndarray with joint solutions
+        
+    """
     if xp.shape[1] != 2:
         raise ValueError("Input path must have shape 2 x N")
         
     Np = xp.shape[0]
     qsol = np.zeros((Np, 2))
     qsol[0] = q0
+    suc = True
     for i in range(1, Np):
         res = root(lambda q : xp[i] - fk(q), qsol[i-1])
         if res['success']:
             qsol[i] = res['x']
         else:
             print "IK did not converge for path point: " + str(i)
-    return qsol
+            suc = False
+    return {'success': suc, 'q': qsol}
 
 def taylors_algorithm(x0, xN, q0, qN, delta, fk):
-    qsol = [q0, qN]
-    xsol = [x0, xN]
+    """ Linear interpolation in joint space
+    
+    This algorithm tries to generate a path close to a straight line segment, given by points x0 and xN. It used a linear interpolation in joint space when this results in a cartesian end effector position close enough (delta) to the original line. If not, an extra exact ik solution is added to the path.
+    
+    Parameters
+    ----------
+    x0 : ndarray (2,)
+        Cartesian starting point on the line segment.
+    xN : ndarray (2,)
+        Cartesian final point on the line segmennt.
+    q0 : ndarray (2,)
+        IK solution for x0
+    qN : ndarray (2,)
+        IK solution for xN
+    delta : float
+        Maximum end effector deviation from the line segment.
+    fk : fun
+        Function that takes as input a list or array with joint values en returns the cartesian coordinates of the end effector.
+        
+    Returns
+    -------
+    dict
+        A dictionnary with keys
+        success : True when the algorithm converged, False otherwise
+        q : (n, 2) ndarray with joint solutions
+        x : (n, 2) ndarray with cartesian path of the end effector
+    
+    """
+    qs = [q0, qN]
+    xs = [x0, xN]
     
     i = 0 # current point looked at (i to i+1)
-    N = 2 # total number of points in solution
+    N = 1 # index of the last point in solution vector
     max_iter = 500
+    suc = True
+    
 
-    while(i < (N - 1) and max_iter <= 0):
+    while(i < N and max_iter > 0):
         max_iter -= 1
         # interpolate in joint space
-        q_mid, x_mid, e = mid_point2(qsol, xsol, i, fk)
+        q_mid = (qs[i] + qs[i+1]) / 2
+        x_mid = fk(q_mid)
+        
+        x_goal = (xs[i] + xs[i+1]) / 2
 
         # check error in task space
-        if e <= delta:
+        if norm(x_goal - x_mid) <= delta:
             # add point to solution
-            add_point(xsol, qsol, x_mid, q_mid, i+1)
+            add_point(xs, qs, x_mid, q_mid, i+1)
             N += 1
             i += 2
         else:
             # refine grid with ik solver
-            x_ref, q_ref = refine_grid(xsol, qsol, i, fk)
-            add_point(xsol, qsol, x_ref, q_ref, i+1)
+            x_ref, q_ref = refine_grid(xs, qs, i, fk)
+            add_point(xs, qs, x_ref, q_ref, i+1)
             N +=1
     
     if max_iter <= 0:
-        print "Not converged, maximum iterations reached"
+        print "Maximum iterations reached in taylor's algorithm"
+        suc = False
         
-    qsol = np.array(qsol)
-    xsol = np.array(xsol)
-    return qsol, xsol
+    qsol = np.array(qs)
+    xsol = np.array(xs)
+    
+    return {'success': suc, 'q': qsol, 'x': xsol}
 
 def find_close_point(x1, q1, x2s, Nd, J):
     """ Close in joint space """
