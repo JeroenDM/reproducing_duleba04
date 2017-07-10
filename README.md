@@ -10,3 +10,5 @@ In the paper, the algorithms are demostrated on a two-link planar manipulater. T
 ## Convergence problems
 At the there are convergence problems with Taylor's algorithm for straight line path planning.
 They occur when an exact IK solution is added in the middle of a line segment. The robot configuration for this new point can be different than for the other point already calculated. For example, elbow up versus elbow down for a two link manipulator. When interpolating between such two different configurations in joint space, the result deviates to much in cartesian space. Even if the two path points are very close in the cartesian space, they are far appart in the joint space.
+
+[Convergence problem](./convergence_problem_illustration.png)
