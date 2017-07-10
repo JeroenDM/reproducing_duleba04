@@ -4,19 +4,21 @@ from scipy.optimize import root
 from util import *
 
 def exact_path_following(xp, q0, fk):
-    """ Solves the inverse kinematics for every path point
+    """ Solves the inverse kinematics for every path point.
     
     Uses root solving algorithm from scipy.optimize to solve the inverse kinematics problem.
+    Achieved by solving the equation fk(q) - xp = 0 for ever path point.
     Uses the solution of the previous point as initial value for the next point.
     
     Parameters
     ----------
     xp : ndarray (n, 2)
-        Cartesian coordinates for the end effector path of lenght n.
+        Cartesian coordinates for the end effector path, consisting of n points.
     q0 : ndarray (2,)
         Initial guess for joint values when solving the ik problem for the first point
     fk : fun
-        Function that takes as input a list or array with joint values en returns the cartesian coordinates of the end effector.
+        Function that takes as input a list or array with joint values and
+        returns the cartesian coordinates of the end effector.
         
     Returns
     -------
@@ -33,6 +35,7 @@ def exact_path_following(xp, q0, fk):
     qsol = np.zeros((Np, 2))
     qsol[0] = q0
     suc = True
+    
     for i in range(1, Np):
         res = root(lambda q : xp[i] - fk(q), qsol[i-1])
         if res['success']:
@@ -40,12 +43,17 @@ def exact_path_following(xp, q0, fk):
         else:
             print "IK did not converge for path point: " + str(i)
             suc = False
-    return {'success': suc, 'q': qsol}
+            
+    #return {'success': suc, 'q': qsol}
+    return qsol, xp, suc
 
 def taylors_algorithm(x0, xN, q0, qN, delta, fk):
-    """ Linear interpolation in joint space
+    """ Linear interpolation in joint space.
     
-    This algorithm tries to generate a path close to a straight line segment, given by points x0 and xN. It used a linear interpolation in joint space when this results in a cartesian end effector position close enough (delta) to the original line. If not, an extra exact ik solution is added to the path.
+    This algorithm generates a path close to a straight line segment, given by points x0 and xN.
+    It uses linear interpolation in joint space. If this results in a cartesian end effector position
+    close enough (delta) to the original line, it is added to the path.
+    If not, an extra exact ik solution is added to the path.
     
     Parameters
     ----------
@@ -60,7 +68,8 @@ def taylors_algorithm(x0, xN, q0, qN, delta, fk):
     delta : float
         Maximum end effector deviation from the line segment.
     fk : fun
-        Function that takes as input a list or array with joint values en returns the cartesian coordinates of the end effector.
+        Function that takes as input a list or array with joint values and
+        returns the cartesian coordinates of the end effector.
         
     Returns
     -------
@@ -107,29 +116,44 @@ def taylors_algorithm(x0, xN, q0, qN, delta, fk):
     qsol = np.array(qs)
     xsol = np.array(xs)
     
-    return {'success': suc, 'q': qsol, 'x': xsol}
-
-def find_close_point(x1, q1, x2s, Nd, J):
-    """ Close in joint space """
-    dmin = np.inf
-    xmin = 0
-    Jk = J(q1)
-    Jk_inv = pinv(Jk)
-    for j in range(Nd):
-        xj = x2s[:, j]
-        dj = norm(Jk_inv.dot(xj - x1))
-
-        if dj < dmin:
-            dmin = dj
-            xmin = xj
-        
-    return xmin, dmin
+    #return {'success': suc, 'q': qsol, 'x': xsol}
+    return qsol, xsol, suc
 
 def local_optimization(xp, q0, delta, fk, J):
-    if xp.shape[1] != 2:
-        raise ValueError("Input path must have shape 2 x N")       
-    Np = xp.shape[0]
+    """ Locally optimize path length in joint space
     
+    Sequentially plan the motion for a path xp. From every point to the next,
+    the path length in joint space is minimized.
+    The end effector has a maximum deviation from the path in cartesian space, given by delta.
+    
+    Parameters
+    ----------
+    xp : ndarray (n, 2)
+        Cartesian coordinates for the end effector path of lenght n.
+    q0 : ndarray (2,)
+        Initial guess for joint values when solving the ik problem for the first point
+    fk : fun
+        Takes as input a list or array with joint values and
+        returns the cartesian coordinates of the end effector.
+    J : fun
+        Takes as input a list or arrray with joint values and
+        returns the jacobian for the robot at the given points
+        (as a numpy.ndarray).
+        
+    Returns
+    -------
+    dict
+        A dictionnary with keys
+        success : True when the algorithm converged, False otherwise
+        q : (n, 2) ndarray with joint solutions
+        
+    """
+    
+    if xp.shape[1] != 2:
+        raise ValueError("Input path must have shape 2 x N")
+    
+    Np = xp.shape[0]
+    suc = True
     # extend path with discretized ball with radius delta (1D in this case) around each path point
     Nd = 10 # discretization points of ball around path point
     xp_ext = []
@@ -148,19 +172,55 @@ def local_optimization(xp, q0, delta, fk, J):
 
         # find corresponding joint solution
         sol = root(lambda q : xmin - fk(q), qsol[i])
-        qmin = sol['x']
-
+        if sol['success']:
+            qmin = sol['x']
+        else:
+            suc = False
+            print "IK did not converge for path point: " + str(i)
+            break
         xsol.append(xmin)
         qsol.append(qmin)
+        
     qsol = np.array(qsol)
     xsol = np.array(xsol)
-    return qsol, xsol
+    
+    #return {'success': suc, 'q': qsol, 'x': xsol}
+    return qsol, xsol, suc
 
 def trajectory_shortening(xp, qp, delta, fk, zeta=0.001, angle_max=0.5):
+    """ Linear interpolation in joint space
+    
+    This algorithm tries to generate a path close to a straight line segment, given by points x0 and xN. It used a linear interpolation in joint space when this results in a cartesian end effector position close enough (delta) to the original line. If not, an extra exact ik solution is added to the path.
+    
+    Parameters
+    ----------
+    xp : ndarray (n,2)
+        Cartesian coordinates for the end effector path of lenght n.
+    qp : ndarray (n,2)
+        Joint solution path which we will try to make shorter.
+    delta : float
+        Maximum deviation from cartesian path in joint space.
+    fk : fun
+        Function that takes as input a list or array with joint values en returns the cartesian coordinates of the end effector.
+    zeta : float
+        Minimum lenght of a joint space vector to consider trajectory shortening for the current point. (Default 0.001)
+    angle_max : float
+        Maximum angle between to consecutive joint space vectors to consider trajectory shortening. (Default 0.5)
+        
+    Returns
+    -------
+    dict
+        A dictionnary with keys
+        success : True when the algorithm converged, False otherwise
+        q : (n, 2) ndarray with joint solutions
+        x : (n, 2) ndarray with cartesian path of the end effector
+    
+    """
     # check xp shape and length
     if xp.shape[1] != 2:
         raise ValueError("Input path must have shape 2 x N")       
     Np = xp.shape[0]
+    suc = True
     
     qsol = [qp[0]]
     xsol = [xp[0]]
@@ -185,7 +245,7 @@ def trajectory_shortening(xp, qp, delta, fk, zeta=0.001, angle_max=0.5):
         # If angle is big, not much shortening can be done
         angle12 = abs(angle(v1, v2, nv1, nv2))
         # print angle12
-        if (angle12 > angle_max):
+        if (angle12 < angle_max):
             qsol.append(qi)
             xsol.append(xi)
             continue
@@ -210,6 +270,8 @@ def trajectory_shortening(xp, qp, delta, fk, zeta=0.001, angle_max=0.5):
     xsol.append(xp[-1])
     qsol = np.array(qsol)
     xsol = np.array(xsol)
-    return qsol, xsol
+    
+    #return {'success': suc, 'q': qsol, 'x': xsol}
+    return qsol, xsol, suc
         
     

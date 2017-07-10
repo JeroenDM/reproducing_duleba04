@@ -1,7 +1,23 @@
 from numpy.linalg import norm, pinv
-from numpy import cos, sin, array, pi, dot, cross, arctan2, zeros, linspace, vstack
+from numpy import cos, sin, array, pi, dot, cross, arctan2, zeros, linspace, vstack, inf
 from scipy.optimize import root
 import matplotlib.pyplot as plt
+
+def find_close_point(x1, q1, x2s, Nd, J):
+    """ Close in joint space """
+    dmin = inf
+    xmin = 0
+    Jk = J(q1)
+    Jk_inv = pinv(Jk)
+    for j in range(Nd):
+        xj = x2s[:, j]
+        dj = norm(Jk_inv.dot(xj - x1))
+
+        if dj < dmin:
+            dmin = dj
+            xmin = xj
+        
+    return xmin, dmin
 
 def generate_example_paths():
     """ Generate three vector of 2D points (N x 2) given in the paper """
